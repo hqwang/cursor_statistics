@@ -213,11 +213,11 @@ echo -e "${BOLD}── 阶段 3/4：安装 Node 依赖 ──${RESET}"
 cd "${INSTALL_DIR}"
 
 info "npm install…"
-npm install --prefer-offline 2>&1 | tail -5
+npm install --prefer-offline
 success "npm 依赖已安装"
 
 info "安装 Playwright Chromium 浏览器…"
-npx playwright install chromium 2>&1 | tail -10
+npx playwright install chromium
 success "Playwright Chromium 已安装"
 echo ""
 
