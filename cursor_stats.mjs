@@ -140,14 +140,16 @@ async function ensureLoggedIn(page, ctx) {
     }
     log("✅", "登录成功");
 
+    // 登录后重新进入 dashboard，等待 React 渲染完成再保存 session
+    // （确保 cursor.com 的 session token 完全写入后再捕获）
+    log("🔄", "重新加载 dashboard…");
+    await page.goto("https://cursor.com/cn/dashboard", { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(3000);   // 等待 session token 落地
+
     // 保存 session
     const state = await ctx.storageState();
     writeFileSync(SESSION_FILE, JSON.stringify(state, null, 2));
     log("💾", `session 已保存 → ${SESSION_FILE}`);
-
-    // 登录后重新进入 dashboard，等待 React 渲染
-    log("🔄", "重新加载 dashboard…");
-    await page.goto("https://cursor.com/cn/dashboard", { waitUntil: "domcontentloaded" });
   } else {
     log("✅", "已登录");
     if (!existsSync(SESSION_FILE)) {
@@ -724,6 +726,14 @@ async function main() {
     console.error(e);
   } finally {
     log("🔒", "开始关闭浏览器");
+    // 关闭前保存最新 session（运行过程中 token 可能已刷新）
+    try {
+      const state = await ctx.storageState();
+      writeFileSync(SESSION_FILE, JSON.stringify(state, null, 2));
+      log("💾", `session 已更新 → ${SESSION_FILE}`);
+    } catch (e) {
+      log("⚠️", `session 保存失败: ${e.message}`);
+    }
     const closeTimeout = new Promise(r => setTimeout(r, 2000));
     await Promise.race([
       (async () => { await ctx.close().catch(() => {}); await browser.close(); })(),
