@@ -750,6 +750,7 @@ async function main() {
 
   section("完成");
   log("✅", "所有任务执行完毕");
+  log("📂", `结果已保存到 ${SHOTS_DIR}`);
 }
 
 main().catch(e => { log("❌", "Fatal:", e.message); console.error(e); process.exit(1); });
