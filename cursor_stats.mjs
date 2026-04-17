@@ -706,7 +706,15 @@ async function main() {
   try {
     // ── Part 1 ──────────────────────────────────────────────────────────────
     const ok = await ensureLoggedIn(page, ctx);
-    if (!ok) { log("❌", "登录失败，终止"); await browser.close(); return; }
+    if (!ok) {
+      log("❌", "登录失败，终止");
+      const closeTimeout = new Promise(r => setTimeout(r, 2000));
+      await Promise.race([
+        (async () => { await ctx.close().catch(() => {}); await browser.close(); })(),
+        closeTimeout,
+      ]);
+      return;
+    }
     daily = await collectLineEdits(page, start, end);
 
     // ── Part 2 ──────────────────────────────────────────────────────────────
@@ -715,7 +723,12 @@ async function main() {
     log("❌", `运行时异常: ${e.message}`);
     console.error(e);
   } finally {
-    await browser.close();
+    log("🔒", "开始关闭浏览器");
+    const closeTimeout = new Promise(r => setTimeout(r, 2000));
+    await Promise.race([
+      (async () => { await ctx.close().catch(() => {}); await browser.close(); })(),
+      closeTimeout,
+    ]);
     log("🔒", "浏览器已关闭");
   }
 
