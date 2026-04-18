@@ -31,7 +31,7 @@ ARCH="$(uname -m)"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════╗${RESET}"
-echo -e "${BOLD}║      cursor_statistics ${VERSION} 安装程序            ║${RESET}"
+echo -e "${BOLD}║      cursor_statistics ${VERSION} 安装程序       ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════╝${RESET}"
 echo ""
 info "平台: ${OS} / ${ARCH}"
