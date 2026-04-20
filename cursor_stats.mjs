@@ -252,7 +252,7 @@ async function collectLineEdits(page, start, end) {
 
   if (cellsByAttr.size > 0) {
     log("✅", `策略A：找到 ${cellsByAttr.size} 个目标格子`);
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(500);
     for (const [dateKey, { cell, lines }] of cellsByAttr) {
       if (lines === 0) {
         daily[dateKey] = 0;
