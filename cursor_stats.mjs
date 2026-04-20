@@ -254,6 +254,7 @@ async function collectLineEdits(page, start, end) {
 
   if (cellsByAttr.size > 0) {
     log("✅", `策略A：找到 ${cellsByAttr.size} 个目标格子`);
+    await page.waitForTimeout(200);
     for (const [dateKey, { cell, lines }] of cellsByAttr) {
       if (lines === 0) {
         daily[dateKey] = 0;
@@ -350,7 +351,7 @@ async function scanHeatmapCells(page, moduleLoc, targetKeys, daily) {
     // hover
     try {
       await cell.hover({ force: true });
-      await page.waitForTimeout(100);
+      await page.waitForTimeout(200);
     } catch {
       continue;
     }
@@ -393,7 +394,7 @@ async function hoverAndShot(page, cell, dateKey, moduleLoc, daily, knownLines = 
 
   try {
     await cell.hover({ force: true });
-    await page.waitForTimeout(200);   // 等 popup 动画完成
+    await page.waitForTimeout(300);   // 等 popup 动画完成
   } catch (e) {
     log("⚠️ ", `  hover 失败: ${e.message}`);
     return;
