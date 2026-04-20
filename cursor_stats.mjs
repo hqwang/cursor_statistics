@@ -287,7 +287,12 @@ function parseTooltipHtml(html) {
   if (!dm) return null;
   const month = MONTHS[dm[1]];
   if (!month) return null;
-  const dateKey = `${dm[3]}-${String(month).padStart(2,"0")}-${String(parseInt(dm[2],10)).padStart(2,"0")}`;
+  // 时区修正：Cursor 统计日期比本地早一天，+1 天还原实际日期
+  const localDate = new Date(parseInt(dm[3], 10), month - 1, parseInt(dm[2], 10) + 1);
+  const year  = String(localDate.getFullYear());
+  const mm    = String(localDate.getMonth() + 1).padStart(2, "0");
+  const dd    = String(localDate.getDate()).padStart(2, "0");
+  const dateKey = `${year}-${mm}-${dd}`;
 
   // 行数解析
   if (/No Lines Edited/i.test(html)) return { dateKey, lines: 0 };
@@ -514,8 +519,11 @@ async function pickCalendarDate(page, date) {
 async function collectCsv(page, ctx, start, end) {
   section("Part 2 — Usage CSV 导出");
 
-  log("🌐", "跳转 dashboard/usage…");
-  await page.goto("https://cursor.com/cn/dashboard/usage", { waitUntil: "domcontentloaded" });
+  // ── 通过 URL 参数设置日期范围 ─────────────────────────────────────────────
+  const usageUrl = `https://cursor.com/cn/dashboard/usage?from=${fmt(start)}&to=${fmt(end)}`;
+  log("🌐", `跳转 dashboard/usage，日期范围: ${fmt(start)} → ${fmt(end)}`);
+  log("🌐", `URL: ${usageUrl}`);
+  await page.goto(usageUrl, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(3000);
   log("🌐", `当前 URL: ${page.url()}`);
 
@@ -523,51 +531,7 @@ async function collectCsv(page, ctx, start, end) {
     log("❌", "未登录，退出 CSV 导出流程");
     return null;
   }
-  log("✅", "已在 usage 页");
-
-  // ── 设置日期范围 ──────────────────────────────────────────────────────────
-  log("📅", `设置日期范围: ${fmt(start)} → ${fmt(end)}`);
-
-  // 点击日期选择按钮
-  const dateBtn = page.locator('button:has(.dashboard-tabular-nums)').first();
-  if (!(await dateBtn.count())) {
-    log("❌", "未找到日期选择按钮");
-    await page.screenshot({ path: path.join(DESKTOP, "cursor_usage_debug.png") });
-    return null;
-  }
-  log("📅", `当前范围: ${await dateBtn.innerText().catch(() => "?")}`);
-  await dateBtn.click();
-  await page.waitForTimeout(200);
-
-  // 点击开始日期、结束日期，然后点 Apply
-  // range picker 规律：start 需点两次确认，再点 end；
-  // start=end 时跳过第二次 start，否则第3次点同一天会重置选择。
-  const sameDay = fmt(start) === fmt(end);
-  log("📅", `选择开始日期: ${fmt(start)}（第1次点击）`);
-  await pickCalendarDate(page, start);
-  await page.waitForTimeout(200);
-  if (!sameDay) {
-    log("📅", `选择开始日期: ${fmt(start)}（第2次点击）`);
-    await pickCalendarDate(page, start);
-    await page.waitForTimeout(300);
-  }
-
-  log("📅", `选择结束日期: ${fmt(end)}`);
-  await pickCalendarDate(page, end);
-  await page.waitForTimeout(500);
-
-  // 等 Apply 按钮变为可用（日期选中后才 enabled）
-  const APPLY_XPATH = "/html/body/main/div/div[2]/div/div/div[2]/div/div[2]/div/div[1]/div[2]/div/div[2]/button[2]";
-  const applyBtn = page.locator(`xpath=${APPLY_XPATH}`);
-  await applyBtn.waitFor({ state: "visible" });
-  for (let i = 0; i < 50; i++) {
-    const disabled = await applyBtn.getAttribute("disabled").catch(() => null);
-    const ariaDisabled = await applyBtn.getAttribute("aria-disabled").catch(() => null);
-    if (disabled === null && ariaDisabled !== "true") break;
-    await page.waitForTimeout(100);
-  }
-  await applyBtn.click();
-  log("📅", "日期已选中，Apply 已点击");
+  log("✅", "已在 usage 页，日期范围已通过 URL 参数指定");
 
   // ── 找 Export CSV 按钮 ────────────────────────────────────────────────────
   log("🔍", "查找 Export CSV 按钮…");
