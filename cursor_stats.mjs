@@ -22,9 +22,7 @@ import os   from "os";
 const ROOT          = import.meta.dirname;
 const DESKTOP       = path.join(os.homedir(), "Desktop");
 const SESSION_FILE  = path.join(ROOT, ".cursor_session.json");
-const _now      = new Date();
-const _ts       = `${String(_now.getMonth()+1).padStart(2,"0")}${String(_now.getDate()).padStart(2,"0")}_${String(_now.getHours()).padStart(2,"0")}${String(_now.getMinutes()).padStart(2,"0")}`;
-const SHOTS_DIR = path.join(DESKTOP, `cursor_line_edits_${_ts}`);
+let SHOTS_DIR; // 在 main() 中按日期范围动态设置
 // DATA_FILE 在 main() 中按日期动态生成
 
 // ─────────────────────────── 日志 ───────────────────────────────────────────
@@ -736,6 +734,13 @@ async function main() {
     start = end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     log("📅", `当天统计: ${fmt(start)}`);
   }
+
+  // 根据日期范围构造截图目录名（mmdd 或 mmdd-mmdd）
+  const mmdd = d => `${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+  const dirSuffix = fmt(start) === fmt(end)
+    ? mmdd(start)
+    : `${mmdd(start)}-${mmdd(end)}`;
+  SHOTS_DIR = path.join(DESKTOP, `cursor_stats_${dirSuffix}`);
 
   section("Cursor 周统计采集器");
   const now = new Date();
