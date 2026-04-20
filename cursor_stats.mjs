@@ -41,7 +41,7 @@ function section(title) {
 // ─────────────────────────── 日期工具 ───────────────────────────────────────
 const DAY = ["日","一","二","三","四","五","六"];
 
-/** 返回 [上周四, 本周三] */
+/** 返回 [上周四, min(本周三, 今天)] */
 function weekRange() {
   const now = new Date();
   // new Date(y,m,d) 始终用本地时区，避免 UTC 偏差导致日期错误
@@ -53,7 +53,9 @@ function weekRange() {
   monday.setDate(today.getDate() + toMon);
   const lastThu = new Date(monday); lastThu.setDate(monday.getDate() - 4);
   const thisWed = new Date(monday); thisWed.setDate(monday.getDate() + 2);
-  return [lastThu, thisWed];
+  // 若本周三晚于今天，取今天
+  const end = thisWed > today ? today : thisWed;
+  return [lastThu, end];
 }
 
 function fmt(d) {
@@ -386,7 +388,7 @@ async function hoverAndShot(page, cell, dateKey, moduleLoc, daily, knownLines = 
 
   try {
     await cell.hover({ force: true });
-    await page.waitForTimeout(100);   // 等 popup 动画完成
+    await page.waitForTimeout(200);   // 等 popup 动画完成
   } catch (e) {
     log("⚠️ ", `  hover 失败: ${e.message}`);
     return;
@@ -540,10 +542,10 @@ async function collectCsv(page, ctx, start, end) {
   // 点击开始日期、结束日期，然后点 Apply
   log("📅", `选择开始日期: ${fmt(start)}（第1次点击）`);
   await pickCalendarDate(page, start);
-  await page.waitForTimeout(100);
+  await page.waitForTimeout(200);
   log("📅", `选择开始日期: ${fmt(start)}（第2次点击）`);
   await pickCalendarDate(page, start);
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(300);
 
   log("📅", `选择结束日期: ${fmt(end)}`);
   await pickCalendarDate(page, end);
@@ -638,12 +640,12 @@ function reportLineEdits(daily, start, end) {
 }
 
 // ─────────────────────────── 汇总：Token ────────────────────────────────────
-function reportTokens(csvPath) {
+function reportTokens(csvPath, start, end) {
   section("汇总 — Token 用量");
 
   if (!csvPath || !existsSync(csvPath)) {
     log("⚠️ ", "无 CSV 文件可分析");
-    return 0;
+    return { total: 0, daily: {} };
   }
   log("📄", `读取: ${csvPath}`);
 
@@ -653,26 +655,59 @@ function reportTokens(csvPath) {
     rows = csvParse(content, { columns: true, skip_empty_lines: true, bom: true });
   } catch (e) {
     log("❌", `CSV 解析失败: ${e.message}`);
-    return 0;
+    return { total: 0, daily: {} };
   }
 
-  if (rows.length === 0) { log("⚠️ ", "CSV 为空"); return 0; }
+  if (rows.length === 0) { log("⚠️ ", "CSV 为空"); return { total: 0, daily: {} }; }
 
   const COL = "Total Tokens";
-  log("📊", `行数: ${rows.length}，求和列: "${COL}"`);
+  // 自动检测日期列
+  const DATE_COLS = ["Date", "Timestamp", "Created At", "Time", "date", "timestamp", "created_at"];
+  const dateCol = DATE_COLS.find(c => c in (rows[0] ?? {}));
+  log("📊", `行数: ${rows.length}，求和列: "${COL}"，日期列: "${dateCol ?? "未找到"}"`);
 
   let total = 0;
+  const daily = {};
+
   for (const row of rows) {
     const raw = (row[COL] ?? "").toString().replace(/,/g, "").trim();
     const n   = parseInt(raw, 10);
-    if (!isNaN(n)) total += n;
+    if (isNaN(n)) continue;
+    total += n;
+
+    if (dateCol) {
+      const d = new Date(row[dateCol]);
+      if (!isNaN(d.getTime())) {
+        const key = fmt(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+        daily[key] = (daily[key] ?? 0) + n;
+      }
+    }
   }
 
   const wan = (total / 10_000).toFixed(2);
   console.log(`\n  Token 总量: ${total.toLocaleString()}`);
   console.log(`  Token 总量: ${wan} w（万）`);
+
+  // 按日输出
+  if (start && end && Object.keys(daily).length > 0) {
+    const maxVal = Math.max(...Object.values(daily), 1);
+    console.log("");
+    for (const d of eachDay(start, end)) {
+      const key  = fmt(d);
+      const n    = daily[key] ?? 0;
+      const bar  = "█".repeat(Math.round((n / maxVal) * 20));
+      const wan2 = (n / 10_000).toFixed(2);
+      console.log(
+        `  ${key} 周${DAY[d.getDay()]}  ` +
+        `${String(n.toLocaleString()).padStart(10)} token  ${wan2.padStart(7)} w  ${bar}`
+      );
+    }
+    console.log(`  ${"─".repeat(56)}`);
+    console.log(`  ${"合计".padEnd(24)}  ${String(total.toLocaleString()).padStart(10)} token  ${wan.padStart(7)} w`);
+  }
+
   log("✅", `Token 汇总完成: ${wan} w`);
-  return total;
+  return { total, daily };
 }
 
 // ─────────────────────────── 主流程 ─────────────────────────────────────────
@@ -683,7 +718,54 @@ async function main() {
     log("🗑 ", `已删除旧目录: ${SHOTS_DIR}`);
   }
 
-  const [start, end] = weekRange();
+  // 解析运行模式与日期区间
+  // --periode YYYYMMDD-YYYYMMDD  指定任意区间
+  // --weekly                     上周四～本周三（或今天）
+  // --day YYYYMMDD               指定某天（start=end=该天）
+  // （无参数）                    当天（start=end=today）
+  let start, end;
+  const args = process.argv;
+
+  const parse8 = (s) => new Date(
+    parseInt(s.slice(0, 4), 10),
+    parseInt(s.slice(4, 6), 10) - 1,
+    parseInt(s.slice(6, 8), 10),
+  );
+
+  const periodeIdx = args.indexOf("--periode");
+  const periodeVal = periodeIdx !== -1
+    ? args[periodeIdx + 1]
+    : args.find(a => a.startsWith("--periode="))?.split("=")[1];
+
+  const dayIdx = args.indexOf("--day");
+  const dayVal = dayIdx !== -1
+    ? args[dayIdx + 1]
+    : args.find(a => a.startsWith("--day="))?.split("=")[1];
+
+  if (periodeVal) {
+    const parts = periodeVal.split("-");
+    if (parts.length !== 2 || parts[0].length !== 8 || parts[1].length !== 8) {
+      log("❌", `--periode 格式错误，应为 YYYYMMDD-YYYYMMDD，收到: ${periodeVal}`);
+      process.exit(1);
+    }
+    start = parse8(parts[0]);
+    end   = parse8(parts[1]);
+    log("📅", `--periode 指定区间: ${fmt(start)} → ${fmt(end)}`);
+  } else if (args.includes("--weekly")) {
+    [start, end] = weekRange();
+    log("📅", `--weekly 区间: ${fmt(start)} → ${fmt(end)}`);
+  } else if (dayVal) {
+    if (dayVal.length !== 8) {
+      log("❌", `--day 格式错误，应为 YYYYMMDD，收到: ${dayVal}`);
+      process.exit(1);
+    }
+    start = end = parse8(dayVal);
+    log("📅", `--day 指定日期: ${fmt(start)}`);
+  } else {
+    const now = new Date();
+    start = end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    log("📅", `当天统计: ${fmt(start)}`);
+  }
 
   section("Cursor 周统计采集器");
   const now = new Date();
@@ -744,7 +826,7 @@ async function main() {
 
   // ── 汇总报告 ───────────────────────────────────────────────────────────────
   const lineEditsTotal = reportLineEdits(daily, start, end);
-  const tokensTotal    = reportTokens(csvPath);
+  const tokensResult   = reportTokens(csvPath, start, end);
 
   // ── 写入汇总 JSON ──────────────────────────────────────────────────────────
   const fmtCompact = (d) => fmt(d).replace(/-/g, "");
@@ -752,7 +834,7 @@ async function main() {
   const output = {
     period    : { start: fmt(start), end: fmt(end) },
     lineEdits : { total: lineEditsTotal, daily },
-    tokens    : { total: tokensTotal },
+    tokens    : { total: tokensResult.total, daily: tokensResult.daily },
   };
   mkdirSync(SHOTS_DIR, { recursive: true });
   writeFileSync(dataFile, JSON.stringify(output, null, 2));
