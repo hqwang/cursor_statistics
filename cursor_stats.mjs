@@ -540,12 +540,17 @@ async function collectCsv(page, ctx, start, end) {
   await page.waitForTimeout(200);
 
   // 点击开始日期、结束日期，然后点 Apply
+  // range picker 规律：start 需点两次确认，再点 end；
+  // start=end 时跳过第二次 start，否则第3次点同一天会重置选择。
+  const sameDay = fmt(start) === fmt(end);
   log("📅", `选择开始日期: ${fmt(start)}（第1次点击）`);
   await pickCalendarDate(page, start);
   await page.waitForTimeout(200);
-  log("📅", `选择开始日期: ${fmt(start)}（第2次点击）`);
-  await pickCalendarDate(page, start);
-  await page.waitForTimeout(300);
+  if (!sameDay) {
+    log("📅", `选择开始日期: ${fmt(start)}（第2次点击）`);
+    await pickCalendarDate(page, start);
+    await page.waitForTimeout(300);
+  }
 
   log("📅", `选择结束日期: ${fmt(end)}`);
   await pickCalendarDate(page, end);
